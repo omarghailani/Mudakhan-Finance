@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Mudakhan Expenses">
+<meta name="apple-mobile-web-app-title" content="Mudakhan Finance">
 <meta name="theme-color" content="#460e1e">
 <title>Mudakhan · Finance</title>
 <link rel="apple-touch-icon" href="icon.png">
@@ -272,7 +272,7 @@ function renderIncome(main){
     <div class="in-row"><label>Delivery</label><input id="inDelivery" type="number" inputmode="decimal" placeholder="0"></div>
     <div class="in-row"><label>Card</label><input id="inCard" type="number" inputmode="decimal" placeholder="0"></div>
     <div style="height:6px"></div>
-    <button class="save" id="incSave" onclick="saveIncome()">Save today's income</button>
+    <button class="save" id="incSave" onclick="saveIncome()">Save income</button>
     <div class="foot">Card is optional here — you can add it later on the dashboard side.</div>`;
 }
 async function saveIncome(){
@@ -286,8 +286,8 @@ async function saveIncome(){
     await apiWrite({action:'addIncome', cash:cash||'', transfer:transfer||'', delivery:delivery||'', card:card||''});
     toast('Saved ✓');
     ['inCash','inTransfer','inDelivery','inCard'].forEach(id=>document.getElementById(id).value='');
-    btn.textContent='Save today\\'s income'; btn.disabled=false;
-  }catch(e){ toast('Could not save — check connection',true); btn.textContent='Save today\\'s income'; btn.disabled=false; }
+    btn.textContent='Save income'; btn.disabled=false;
+  }catch(e){ toast('Could not save — check connection',true); btn.textContent='Save income'; btn.disabled=false; }
 }
 
 async function renderDash(main){
