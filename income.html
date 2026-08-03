@@ -282,21 +282,21 @@ async function saveExpense(){
   if(!amt||amt<=0){ toast('Enter an amount',true); return; }
   if(!pickedCat){ toast('Pick a category',true); return; }
   const note=document.getElementById('expNote').value.trim();
-  const btn=document.getElementById('expSave'); btn.textContent='Saving…'; btn.disabled=true;
-  try{
-    await apiWrite({action:'addExpense', amount:amt, category:pickedCat, note:note});
-    toast('Saved ✓');
-    renderExpense(document.getElementById('main'));
-  }catch(e){
-    // reply failed — check if it actually landed before alarming
-    try{
-      await new Promise(r=>setTimeout(r,1500));
-      const rows=await verifyRows(GID.expenses);
-      const hit=rows.some(r=>Math.abs((parseFloat(r[1])||0)-amt)<0.001 && String(r[2]||'').trim()===pickedCat);
-      if(hit){ toast('Saved ✓'); renderExpense(document.getElementById('main')); return; }
-    }catch(_){}
-    toast('Could not save — check connection',true); btn.textContent='Save expense'; btn.disabled=false;
-  }
+  const cat=pickedCat;
+  // optimistic: confirm instantly, reset for next bill, write in background
+  toast('Saved ✓');
+  renderExpense(document.getElementById('main'));
+  (async()=>{
+    try{ await apiWrite({action:'addExpense', amount:amt, category:cat, note:note}); }
+    catch(e){
+      try{
+        await new Promise(r=>setTimeout(r,1500));
+        const rows=await verifyRows(GID.expenses);
+        const hit=rows.some(r=>Math.abs((parseFloat(r[1])||0)-amt)<0.001 && String(r[2]||'').trim()===cat);
+        if(!hit) toast('⚠ '+amt+' '+cat+' may not have saved — check sheet',true);
+      }catch(_){ toast('⚠ '+amt+' '+cat+' may not have saved — check sheet',true); }
+    }
+  })();
 }
 
 function renderIncome(main){
@@ -339,29 +339,26 @@ async function saveIncome(){
   if(transferV!=='') payload.transfer=parseFloat(transferV)||0;
   if(deliveryV!=='') payload.delivery=parseFloat(deliveryV)||0;
   if(cardV!=='')     payload.card=parseFloat(cardV)||0;
-  const btn=document.getElementById('incSave'); btn.textContent='Saving…'; btn.disabled=true;
-  try{
-    await apiWrite(payload);
-    toast('Saved ✓ ('+(incomeDay==='today'?'today':'yesterday')+')');
-    ['inCash','inTransfer','inDelivery','inCard'].forEach(id=>document.getElementById(id).value='');
-    btn.textContent='Save income'; btn.disabled=false;
-  }catch(e){
-    try{
-      await new Promise(r=>setTimeout(r,1500));
-      const rows=await verifyRows(GID.income);
-      const hit=rows.some(r=>{
-        const rd=r[0]; if(rd==null) return false;
-        // match the date we saved (d/m/yyyy or Date object)
-        let ds=String(rd); const m=ds.match(/Date\((\d+),(\d+),(\d+)/);
-        if(m) ds=(+m[3])+'/'+((+m[2])+1)+'/'+m[1];
-        return ds===payload.date;
-      });
-      if(hit){ toast('Saved ✓ ('+(incomeDay==='today'?'today':'yesterday')+')');
-        ['inCash','inTransfer','inDelivery','inCard'].forEach(id=>document.getElementById(id).value='');
-        btn.textContent='Save income'; btn.disabled=false; return; }
-    }catch(_){}
-    toast('Could not save — check connection',true); btn.textContent='Save income'; btn.disabled=false;
-  }
+  const dayLabel=(incomeDay==='today'?'today':'yesterday');
+  // optimistic: confirm instantly, clear fields, write in background
+  toast('Saved ✓ ('+dayLabel+')');
+  ['inCash','inTransfer','inDelivery','inCard'].forEach(id=>document.getElementById(id).value='');
+  (async()=>{
+    try{ await apiWrite(payload); }
+    catch(e){
+      try{
+        await new Promise(r=>setTimeout(r,1500));
+        const rows=await verifyRows(GID.income);
+        const hit=rows.some(r=>{
+          const rd=r[0]; if(rd==null) return false;
+          let ds=String(rd); const m=ds.match(/Date\((\d+),(\d+),(\d+)/);
+          if(m) ds=(+m[3])+'/'+((+m[2])+1)+'/'+m[1];
+          return ds===payload.date;
+        });
+        if(!hit) toast('⚠ '+dayLabel+' income may not have saved — check sheet',true);
+      }catch(_){ toast('⚠ '+dayLabel+' income may not have saved — check sheet',true); }
+    }
+  })();
 }
 
 async function renderDash(main){
