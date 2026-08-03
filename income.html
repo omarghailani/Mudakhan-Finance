@@ -142,7 +142,7 @@ const SHEET_ID = "1Bl-XuL_dhGyTaoMQ2gYR2avm6RE_cRzC6WQTWk0MtIM";
 const GID = { income:"1887562954", expenses:"1044182991", fixed:"1078230618", recurring:"1812267994" };
 const CATS = ["Stock","Packaging","Gas","Maintenance","Electricity","Water","Development"];
 
-let view='income', pickedCat=null, period='month';
+let view='income', pickedCat=null, period='month', incomeDay='today';
 let DATA={income:[],expenses:[],fixed:[],recurring:[]};
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -264,27 +264,49 @@ async function saveExpense(){
 }
 
 function renderIncome(main){
+  incomeDay='today';
   main.innerHTML=`
     <h1>Add income</h1>
-    <div class="sub">Enter today's totals — leave blank if none</div>
+    <div class="sub">Pick the day, enter what you have — blanks are left as-is</div>
+    <div class="period-tabs" style="margin-bottom:18px">
+      <button class="pt on" id="dayToday" onclick="setDay('today')">Today</button>
+      <button class="pt" id="dayYest" onclick="setDay('yesterday')">Yesterday</button>
+    </div>
     <div class="in-row"><label>Cash</label><input id="inCash" type="number" inputmode="decimal" placeholder="0"></div>
     <div class="in-row"><label>Transfer</label><input id="inTransfer" type="number" inputmode="decimal" placeholder="0"></div>
     <div class="in-row"><label>Delivery</label><input id="inDelivery" type="number" inputmode="decimal" placeholder="0"></div>
     <div class="in-row"><label>Card</label><input id="inCard" type="number" inputmode="decimal" placeholder="0"></div>
     <div style="height:6px"></div>
     <button class="save" id="incSave" onclick="saveIncome()">Save income</button>
-    <div class="foot">Card is optional here — you can add it later on the dashboard side.</div>`;
+    <div class="foot" id="dayNote">Saving for today. Only the fields you fill get updated.</div>`;
 }
+function setDay(which){
+  incomeDay=which;
+  document.getElementById('dayToday').classList.toggle('on',which==='today');
+  document.getElementById('dayYest').classList.toggle('on',which==='yesterday');
+  document.getElementById('dayNote').textContent =
+    which==='today' ? 'Saving for today. Only the fields you fill get updated.'
+                    : 'Saving for yesterday. Only the fields you fill get updated (e.g. just Card).';
+}
+function ddmmyyyy(d){ return d.getDate()+'/'+(d.getMonth()+1)+'/'+d.getFullYear(); }
 async function saveIncome(){
-  const cash=parseFloat(document.getElementById('inCash').value)||0;
-  const transfer=parseFloat(document.getElementById('inTransfer').value)||0;
-  const delivery=parseFloat(document.getElementById('inDelivery').value)||0;
-  const card=parseFloat(document.getElementById('inCard').value)||0;
-  if(cash+transfer+delivery+card<=0){ toast('Enter at least one amount',true); return; }
+  const cashV=document.getElementById('inCash').value.trim();
+  const transferV=document.getElementById('inTransfer').value.trim();
+  const deliveryV=document.getElementById('inDelivery').value.trim();
+  const cardV=document.getElementById('inCard').value.trim();
+  if(!cashV && !transferV && !deliveryV && !cardV){ toast('Enter at least one amount',true); return; }
+  const d=new Date();
+  if(incomeDay==='yesterday') d.setDate(d.getDate()-1);
+  const payload={action:'addIncome', date:ddmmyyyy(d)};
+  // only send fields that were actually typed → server merges, blanks untouched
+  if(cashV!=='')     payload.cash=parseFloat(cashV)||0;
+  if(transferV!=='') payload.transfer=parseFloat(transferV)||0;
+  if(deliveryV!=='') payload.delivery=parseFloat(deliveryV)||0;
+  if(cardV!=='')     payload.card=parseFloat(cardV)||0;
   const btn=document.getElementById('incSave'); btn.textContent='Saving…'; btn.disabled=true;
   try{
-    await apiWrite({action:'addIncome', cash:cash||'', transfer:transfer||'', delivery:delivery||'', card:card||''});
-    toast('Saved ✓');
+    await apiWrite(payload);
+    toast('Saved ✓ ('+(incomeDay==='today'?'today':'yesterday')+')');
     ['inCash','inTransfer','inDelivery','inCard'].forEach(id=>document.getElementById(id).value='');
     btn.textContent='Save income'; btn.disabled=false;
   }catch(e){ toast('Could not save — check connection',true); btn.textContent='Save income'; btn.disabled=false; }
