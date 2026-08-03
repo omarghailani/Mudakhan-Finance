@@ -142,7 +142,7 @@ const SHEET_ID = "1Bl-XuL_dhGyTaoMQ2gYR2avm6RE_cRzC6WQTWk0MtIM";
 const GID = { income:"1887562954", expenses:"1044182991", fixed:"1078230618", recurring:"1812267994" };
 const CATS = ["Stock","Packaging","Gas","Maintenance","Electricity","Water","Development"];
 
-let view='home', pickedCat=null, period='month';
+let view='home', pickedCat=null, period='month', incomeDay='today';
 let DATA={income:[],expenses:[],fixed:[],recurring:[]};
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -154,12 +154,39 @@ function buildUrl(p){const all=Object.assign({},p,{token:TOKEN,_:Date.now()});re
 async function apiWrite(p){
   try{
     const r=await fetch(buildUrl(p),{cache:'no-store'});
-    const txt=await r.text();
-    const j=JSON.parse(txt);
-    if(j&&j.ok) return j;
-    if(j&&j.error) throw new Error(j.error);
-    throw new Error('failed');
-  }catch(e){ throw e; }
+    const txt=(await r.text()).trim();
+    try{
+      const j=JSON.parse(txt);
+      if(j&&j.ok) return j;
+      if(j&&j.error) throw new Error(j.error);
+      return j||{ok:true};
+    }catch(parseErr){
+      if(parseErr instanceof Error && parseErr.message && !/JSON|Unexpected|token/i.test(parseErr.message)) throw parseErr;
+      if(txt && !/error|denied|unauthor|<html|login|sign in|not found|يتعذر/i.test(txt)) return {ok:true,raw:txt};
+      throw new Error('bad reply');
+    }
+  }catch(e){
+    // Reply channel hiccup — the write often still landed. Retry once, blind.
+    try{
+      const im=new Image(); im.src=buildUrl(p);           // fire-and-forget resend
+    }catch(_){}
+    throw e;   // caller decides whether to verify
+  }
+}
+
+// Read a tab and return rows (used for verifying a save actually landed)
+function verifyRows(gid){
+  return new Promise((resolve,reject)=>{
+    const cb='vrf_'+Date.now()+'_'+Math.floor(Math.random()*1e5);
+    const s=document.createElement('script');let done=false;
+    function clean(){try{delete window[cb];}catch(e){window[cb]=undefined;}if(s.parentNode)s.remove();}
+    const t=setTimeout(()=>{if(done)return;done=true;clean();reject(new Error('vt'));},10000);
+    window[cb]=function(resp){if(done)return;done=true;clearTimeout(t);clean();
+      try{const tb=resp.table;const rows=tb.rows.map(r=>(r.c||[]).map(c=>c?c.v:null));resolve(rows);}catch(e){reject(e);}};
+    s.onerror=()=>{if(done)return;done=true;clearTimeout(t);clean();reject(new Error('vn'));};
+    s.src=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json;responseHandler:${cb}&headers=1&gid=${gid}&_=${Date.now()}`;
+    document.body.appendChild(s);
+  });
 }
 
 // ---------- read sheet via gviz ----------
@@ -259,35 +286,82 @@ async function saveExpense(){
   try{
     await apiWrite({action:'addExpense', amount:amt, category:pickedCat, note:note});
     toast('Saved ✓');
-    renderExpense(document.getElementById('main'));  // reset for next
-  }catch(e){ toast('Could not save — check connection',true); btn.textContent='Save expense'; btn.disabled=false; }
+    renderExpense(document.getElementById('main'));
+  }catch(e){
+    // reply failed — check if it actually landed before alarming
+    try{
+      await new Promise(r=>setTimeout(r,1500));
+      const rows=await verifyRows(GID.expenses);
+      const hit=rows.some(r=>Math.abs((parseFloat(r[1])||0)-amt)<0.001 && String(r[2]||'').trim()===pickedCat);
+      if(hit){ toast('Saved ✓'); renderExpense(document.getElementById('main')); return; }
+    }catch(_){}
+    toast('Could not save — check connection',true); btn.textContent='Save expense'; btn.disabled=false;
+  }
 }
 
 function renderIncome(main){
+  incomeDay='today';
   main.innerHTML=`
     <h1>Add income</h1>
-    <div class="sub">Enter today's totals — leave blank if none</div>
+    <div class="sub">Pick the day, enter what you have — blanks are left as-is</div>
+    <div class="period-tabs" style="margin-bottom:18px">
+      <button class="pt on" id="dayToday" onclick="setDay('today')">Today</button>
+      <button class="pt" id="dayYest" onclick="setDay('yesterday')">Yesterday</button>
+    </div>
     <div class="in-row"><label>Cash</label><input id="inCash" type="number" inputmode="decimal" placeholder="0"></div>
     <div class="in-row"><label>Transfer</label><input id="inTransfer" type="number" inputmode="decimal" placeholder="0"></div>
     <div class="in-row"><label>Delivery</label><input id="inDelivery" type="number" inputmode="decimal" placeholder="0"></div>
     <div class="in-row"><label>Card</label><input id="inCard" type="number" inputmode="decimal" placeholder="0"></div>
     <div style="height:6px"></div>
     <button class="save" id="incSave" onclick="saveIncome()">Save income</button>
-    <div class="foot">Card is optional here — you can add it later on the dashboard side.</div>`;
+    <div class="foot" id="dayNote">Saving for today. Only the fields you fill get updated.</div>`;
 }
+function setDay(which){
+  incomeDay=which;
+  document.getElementById('dayToday').classList.toggle('on',which==='today');
+  document.getElementById('dayYest').classList.toggle('on',which==='yesterday');
+  document.getElementById('dayNote').textContent =
+    which==='today' ? 'Saving for today. Only the fields you fill get updated.'
+                    : 'Saving for yesterday. Only the fields you fill get updated (e.g. just Card).';
+}
+function ddmmyyyy(d){ return d.getDate()+'/'+(d.getMonth()+1)+'/'+d.getFullYear(); }
 async function saveIncome(){
-  const cash=parseFloat(document.getElementById('inCash').value)||0;
-  const transfer=parseFloat(document.getElementById('inTransfer').value)||0;
-  const delivery=parseFloat(document.getElementById('inDelivery').value)||0;
-  const card=parseFloat(document.getElementById('inCard').value)||0;
-  if(cash+transfer+delivery+card<=0){ toast('Enter at least one amount',true); return; }
+  const cashV=document.getElementById('inCash').value.trim();
+  const transferV=document.getElementById('inTransfer').value.trim();
+  const deliveryV=document.getElementById('inDelivery').value.trim();
+  const cardV=document.getElementById('inCard').value.trim();
+  if(!cashV && !transferV && !deliveryV && !cardV){ toast('Enter at least one amount',true); return; }
+  const d=new Date();
+  if(incomeDay==='yesterday') d.setDate(d.getDate()-1);
+  const payload={action:'addIncome', date:ddmmyyyy(d)};
+  // only send fields that were actually typed → server merges, blanks untouched
+  if(cashV!=='')     payload.cash=parseFloat(cashV)||0;
+  if(transferV!=='') payload.transfer=parseFloat(transferV)||0;
+  if(deliveryV!=='') payload.delivery=parseFloat(deliveryV)||0;
+  if(cardV!=='')     payload.card=parseFloat(cardV)||0;
   const btn=document.getElementById('incSave'); btn.textContent='Saving…'; btn.disabled=true;
   try{
-    await apiWrite({action:'addIncome', cash:cash||'', transfer:transfer||'', delivery:delivery||'', card:card||''});
-    toast('Saved ✓');
+    await apiWrite(payload);
+    toast('Saved ✓ ('+(incomeDay==='today'?'today':'yesterday')+')');
     ['inCash','inTransfer','inDelivery','inCard'].forEach(id=>document.getElementById(id).value='');
     btn.textContent='Save income'; btn.disabled=false;
-  }catch(e){ toast('Could not save — check connection',true); btn.textContent='Save income'; btn.disabled=false; }
+  }catch(e){
+    try{
+      await new Promise(r=>setTimeout(r,1500));
+      const rows=await verifyRows(GID.income);
+      const hit=rows.some(r=>{
+        const rd=r[0]; if(rd==null) return false;
+        // match the date we saved (d/m/yyyy or Date object)
+        let ds=String(rd); const m=ds.match(/Date\((\d+),(\d+),(\d+)/);
+        if(m) ds=(+m[3])+'/'+((+m[2])+1)+'/'+m[1];
+        return ds===payload.date;
+      });
+      if(hit){ toast('Saved ✓ ('+(incomeDay==='today'?'today':'yesterday')+')');
+        ['inCash','inTransfer','inDelivery','inCard'].forEach(id=>document.getElementById(id).value='');
+        btn.textContent='Save income'; btn.disabled=false; return; }
+    }catch(_){}
+    toast('Could not save — check connection',true); btn.textContent='Save income'; btn.disabled=false;
+  }
 }
 
 async function renderDash(main){
