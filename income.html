@@ -8,8 +8,8 @@
 <meta name="apple-mobile-web-app-title" content="Mudakhan Finance">
 <meta name="theme-color" content="#460e1e">
 <title>Mudakhan · Finance</title>
-<link rel="apple-touch-icon" href="icon.png">
-<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-finance.png">
+<link rel="icon" type="image/png" href="icon-finance.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
@@ -372,11 +372,23 @@ async function renderDash(main){
   }
 }
 function inPeriod(d,p){
-  if(!d) return false;
+  if(!d||isNaN(d)) return false;
   const now=new Date();
   if(p==='month') return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
+  if(p==='prev'){
+    const pm=new Date(now.getFullYear(), now.getMonth()-1, 1);
+    return d.getMonth()===pm.getMonth() && d.getFullYear()===pm.getFullYear();
+  }
   if(p==='week'){ const diff=(now-d)/86400000; return diff>=0 && diff<7; }
   return true; // all
+}
+// months elapsed within the selected period (for spreading fixed/recurring costs)
+function monthsInPeriod(p, incRows, expRows){
+  if(p==='month'||p==='prev') return 1;
+  if(p==='week') return 7/30;
+  const months={};
+  incRows.concat(expRows).forEach(r=>{if(r.d&&!isNaN(r.d))months[r.d.getFullYear()+'-'+r.d.getMonth()]=1;});
+  return Math.max(1,Object.keys(months).length);
 }
 function drawDash(main){
   // parse income rows: columns Date, Cash, Transfer, Delivery, Card (+ maybe Total)
@@ -390,25 +402,24 @@ function drawDash(main){
   const variable=fExp.reduce((s,r)=>s+r.amt,0);
   const stock=fExp.filter(r=>/stock/i.test(r.cat)).reduce((s,r)=>s+r.amt,0);
 
-  // fixed: monthly amounts; recurring: monthly-equivalent
-  const fixedMonthly=DATA.fixed.reduce((s,r)=>{const v=Object.values(r);return s+num(v[1]);},0);
-  const recMonthly=DATA.recurring.reduce((s,r)=>{const v=Object.values(r);const tot=num(v[1]),every=num(v[2])||1;return s+ (tot/every);},0);
-  // apply fixed+recurring proportionally to the period
-  let fixedForPeriod=fixedMonthly+recMonthly;
-  if(period==='week') fixedForPeriod=(fixedMonthly+recMonthly)*7/30;
-  if(period==='all'){
-    // count distinct months present
-    const months={};
-    incRows.concat(expRows).forEach(r=>{if(r.d)months[r.d.getFullYear()+'-'+r.d.getMonth()]=1;});
-    const nMonths=Math.max(1,Object.keys(months).length);
-    fixedForPeriod=(fixedMonthly+recMonthly)*nMonths;
-  }
+  // fixed: scan rows for numeric monthly amounts (tab has a title row, so read defensively)
+  const fixedMonthly=DATA.fixed.reduce((s,r)=>{
+    const v=Object.values(r);
+    const label=String(v[0]||'').toLowerCase();
+    const amt=num(v[1]);
+    if(amt>0 && !/total|monthly|category|fixed cost/.test(label)) return s+amt;
+    return s;
+  },0);
+  const recMonthly=DATA.recurring.reduce((s,r)=>{const v=Object.values(r);const mc=num(v[3]); if(mc>0) return s+mc; const tot=num(v[1]),every=num(v[2])||1; return s+(tot/every);},0);
+
+  const nMonths=monthsInPeriod(period, incRows, expRows);
+  const fixedForPeriod=(fixedMonthly+recMonthly)*nMonths;
 
   const bottom=income-variable-fixedForPeriod;
   const stockPct=income>0?(stock/income*100):0;
 
   const pl=v=>v.toFixed(3);
-  const periodLabel={month:'This month',week:'This week',all:'All time'}[period];
+  const periodLabel={month:'This month',prev:'Previous month',week:'This week',all:'All time'}[period];
 
   // category breakdown
   const catTot={};
@@ -417,8 +428,9 @@ function drawDash(main){
 
   main.innerHTML=`
     <h1>Dashboard</h1>
-    <div class="period-tabs">
+    <div class="period-tabs" style="flex-wrap:wrap">
       <button class="pt ${period==='month'?'on':''}" onclick="period='month';drawDash(document.getElementById('main'))">This month</button>
+      <button class="pt ${period==='prev'?'on':''}" onclick="period='prev';drawDash(document.getElementById('main'))">Last month</button>
       <button class="pt ${period==='week'?'on':''}" onclick="period='week';drawDash(document.getElementById('main'))">This week</button>
       <button class="pt ${period==='all'?'on':''}" onclick="period='all';drawDash(document.getElementById('main'))">All time</button>
     </div>
