@@ -413,7 +413,22 @@ function drawDash(main){
   const recMonthly=DATA.recurring.reduce((s,r)=>{const v=Object.values(r);const mc=num(v[3]); if(mc>0) return s+mc; const tot=num(v[1]),every=num(v[2])||1; return s+(tot/every);},0);
 
   const nMonths=monthsInPeriod(period, incRows, expRows);
-  const fixedForPeriod=(fixedMonthly+recMonthly)*nMonths;
+  // Spread fixed+recurring by real days. Each month divides by its own day count.
+  function daysInMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
+  const now=new Date();
+  let fixedForPeriod;
+  if(period==='month'){
+    const dim=daysInMonth(now.getFullYear(), now.getMonth());
+    const elapsed=now.getDate();
+    fixedForPeriod=(fixedMonthly+recMonthly)/dim*elapsed;
+  } else if(period==='prev'){
+    fixedForPeriod=(fixedMonthly+recMonthly);
+  } else if(period==='week'){
+    const dim=daysInMonth(now.getFullYear(), now.getMonth());
+    fixedForPeriod=(fixedMonthly+recMonthly)/dim*7;
+  } else {
+    fixedForPeriod=(fixedMonthly+recMonthly)*nMonths;
+  }
 
   const bottom=income-variable-fixedForPeriod;
   const stockPct=income>0?(stock/income*100):0;
@@ -438,7 +453,7 @@ function drawDash(main){
     <div class="hero">
       <div class="cap">${periodLabel} · bottom line</div>
       <div class="big">${bottom>=0?'+':''}${pl(bottom)}</div>
-      <div class="sm">Income ${pl(income)} − expenses ${pl(variable)} − fixed ${pl(fixedForPeriod)}</div>
+      <div class="sm">Income ${pl(income)} − expenses ${pl(variable)} − fixed ${pl(fixedForPeriod)}${period==='month'?` (${now.getDate()} of ${daysInMonth(now.getFullYear(),now.getMonth())} days)`:''}</div>
     </div>
 
     <div class="two">
